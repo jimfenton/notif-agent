@@ -371,11 +371,11 @@ func main() {
 	}
 	defer sess.Close()
 
-	ag.NotifColl = sess.DB("").C("usermgmt_notification")
-	ag.AuthColl = sess.DB("").C("usermgmt_authorization")
-	ag.MethodColl = sess.DB("").C("usermgmt_method")
-	ag.RuleColl = sess.DB("").C("usermgmt_rule")
-	ag.UserinfoColl = sess.DB("").C("usermgmt_userext")
+	ag.NotifColl = sess.DB("").C("notification")
+	ag.AuthColl = sess.DB("").C("authorization")
+	ag.MethodColl = sess.DB("").C("method")
+	ag.RuleColl = sess.DB("").C("rule")
+	ag.UserinfoColl = sess.DB("").C("userext")
 	h.Agent = &ag
 
 	log.Fatal(http.ListenAndServe(":5342", h))
