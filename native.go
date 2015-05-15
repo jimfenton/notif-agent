@@ -1,6 +1,6 @@
 /*
 
-nagent.go - Prototype notification agent
+native.go - Native notif collector for prototype notification agent
 
 Copyright (c) 2015 Jim Fenton
 
@@ -26,24 +26,32 @@ SOFTWARE.
 
 package main
 
+/* Design philosophy:
+
+The code in this file is a goroutine that deals with the collection of "native" notifs -- those that are sent via the Notifs API (as opposed to those collected from other services, such as RSS and Twitter). Since the Authorizations collection (database table) is associated only with native notifs, it is handled exclusively by this file in the agent.
+
+*/
+
 import (
 	"code.google.com/p/go-uuid/uuid"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/jimfenton/notif-agent/notif"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"github.com/jimfenton/notif-agent/notif"
-	"os"
 	"strings"
 	"time"
 )
 
-type agentHandler struct {
-	Agent *notif.Agent
+type agent struct {
+	NotifColl    *mgo.Collection
+	AuthColl     *mgo.Collection
+	UserinfoColl *mgo.Collection
+	CollChan     chan notif.Notif
 }
 
 type notifMsg struct { //Notification format "on the wire"
@@ -70,7 +78,9 @@ type notifPayload struct {
 	Body     string         `json:"body"` //May become MIME-like JSON
 }
 
-func (ah agentHandler) ServeHTTP(
+// Handle a single native Notif API request
+
+func (ag agent) ServeHTTP(
 	w http.ResponseWriter,
 	r *http.Request) {
 
@@ -85,10 +95,7 @@ func (ah agentHandler) ServeHTTP(
 	var flatload []string //"flattened" payload (header.payload.sig each base64)
 	var protected []byte
 	var err error
-	var ag notif.Agent
 	var addr string //auth (POST) or id (PUT, DELE) from URL
-
-	ag = *ah.Agent
 
 	if r.Method != "POST" && r.Method != "PUT" && r.Method != "DELE" {
 		w.Header().Add("Allow", "GET, PUT, DELE")
@@ -107,7 +114,7 @@ func (ah agentHandler) ServeHTTP(
 	} else {
 		addr = r.URL.Path[1:]
 	}
-	
+
 	err = json.Unmarshal(body, &nm)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -145,12 +152,12 @@ func (ah agentHandler) ServeHTTP(
 	}
 
 	//TODO: Still need to check to see if expiration is not in the past, etc.
+	//At this point, basic syntax looks good
 
 	switch r.Method {
 	case "POST":
 		err = ag.AuthColl.Find(bson.M{"address": addr}).One(&auth)
 		if err != nil || auth.Deleted {
-			fmt.Println("Auth ", err, " ", addr)
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, "Authorization not found")
 			return
@@ -174,24 +181,16 @@ func (ah agentHandler) ServeHTTP(
 
 		nd.Id = bson.NewObjectId()
 		nd.UserID = auth.UserID
-		//nd.To = nm.Header.To //old format
-		nd.To = addr //new format
+		nd.To = addr
 		nd.Origtime = np.Origtime
 		nd.Expires = np.Expires
 		nd.Subject = np.Subject
-		nd.FromDomain = auth.Domain
+		nd.From = auth.Domain
 		nd.Description = auth.Description
 		nd.Priority = np.Priority
-		//		nd.Category = np.Category  //Need to sort out types
 		nd.Body = np.Body
 		nd.NotID = uuid.New()
 		nd.RecvTime = time.Now()
-
-		err = ag.NotifColl.Insert(nd)
-		if err != nil {
-			fmt.Println("Insert error: ", err)
-			return
-		}
 
 		//Update the notification count and time on the authorization
 		auth.Count += 1
@@ -199,6 +198,14 @@ func (ah agentHandler) ServeHTTP(
 		err = ag.AuthColl.UpdateId(auth.Id, auth)
 		if err != nil {
 			fmt.Println("Error updating authorization: ", err)
+			return
+		}
+
+		//Writing the notif itself should probably be common code with other collectors
+
+		err = ag.NotifColl.Insert(nd)
+		if err != nil {
+			fmt.Println("Insert error: ", err)
 			return
 		}
 
@@ -216,12 +223,14 @@ func (ah agentHandler) ServeHTTP(
 			return
 		}
 
-		//Read the rules and execute any required push actions
-		ProcessRules(ag, nd, auth, uinfo)
-
 		//Tell the notifier the notification ID in the response
 		resp := "{ \"notid\": \"" + nd.NotID + "\" }"
 		fmt.Fprint(w, resp)
+
+		ag.CollChan <- nd
+
+		//Read the rules and execute any required push actions
+		//		ProcessRules(ag, nd, auth, uinfo)
 
 	case "PUT":
 		err = ag.NotifColl.Find(bson.M{"notID": addr}).One(&nd)
@@ -235,7 +244,6 @@ func (ah agentHandler) ServeHTTP(
 		err = ag.AuthColl.Find(bson.M{"address": nd.To}).One(&auth)
 
 		if err != nil || auth.Deleted {
-			fmt.Println("Auth ", err, " ", addr)
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, "PUT: Authorization not found")
 			return
@@ -256,6 +264,7 @@ func (ah agentHandler) ServeHTTP(
 			fmt.Fprint(w, "PUT: Update to later notif")
 			return
 		}
+
 		nd.Origtime = np.Origtime
 		nd.Expires = np.Expires
 		nd.Subject = np.Subject
@@ -266,20 +275,13 @@ func (ah agentHandler) ServeHTTP(
 		nd.Read = false
 		nd.UserID = auth.UserID //should already be there, but just in case
 
-		err = ag.NotifColl.UpdateId(nd.Id, nd)
-		if err != nil {
-			fmt.Println("PUT: Error updating Notif: ", err, " ", addr)
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprint(w, "PUT: Error updating Notif")
-			return
-		}
-
 		auth.Latest = nd.RecvTime
 		err = ag.AuthColl.UpdateId(auth.Id, auth)
 		if err != nil {
 			fmt.Println("PUT: Error updating authorization: ", err)
 			return
 		}
+
 		//Update the user's latest notification time (but not notification count since we're modifying)
 		err = ag.UserinfoColl.Find(bson.M{"user_id": auth.UserID}).One(&uinfo)
 		if err != nil {
@@ -295,7 +297,17 @@ func (ah agentHandler) ServeHTTP(
 		}
 
 		//Read the rules and execute any required push actions
-		ProcessRules(ag, nd, auth, uinfo)
+		//		ProcessRules(ag, nd, auth, uinfo)
+
+		err = ag.NotifColl.UpdateId(nd.Id, nd)
+		if err != nil {
+			fmt.Println("PUT: Error updating Notif: ", err, " ", addr)
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "PUT: Error updating Notif")
+			return
+		}
+
+		ag.CollChan <- nd
 
 	case "DELE":
 		err = ag.NotifColl.Find(bson.M{"notid": addr}).One(&nd)
@@ -349,34 +361,12 @@ func pad64(input string) string {
 	}
 }
 
-func main() {
-	var ag notif.Agent
-	var h agentHandler
-
-	//Test stuff
-	pubkey := getkey("shiny", "bluepopcorn.net")
-
-	pkey, err := base64.StdEncoding.DecodeString(pubkey)
-	if err != nil {
-		fmt.Println("Key decoding error:", err, pkey)
-	}
-
-	// End test stuff
-
-	uri := "mongodb://localhost/notif"
-	sess, err := mgo.Dial(uri)
-	if err != nil {
-		fmt.Printf("Can't connect to mongo, go error %v\n", err)
-		os.Exit(1)
-	}
-	defer sess.Close()
-
+func collectNative(sess *mgo.Session, c chan notif.Notif) {
+	var ag agent //Probably doesn't belong in Notif package
 	ag.NotifColl = sess.DB("").C("notification")
 	ag.AuthColl = sess.DB("").C("authorization")
-	ag.MethodColl = sess.DB("").C("method")
-	ag.RuleColl = sess.DB("").C("rule")
 	ag.UserinfoColl = sess.DB("").C("userext")
-	h.Agent = &ag
+	ag.CollChan = c
 
-	log.Fatal(http.ListenAndServe(":5342", h))
+	log.Fatal(http.ListenAndServe(":5342", ag))
 }

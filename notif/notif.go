@@ -27,7 +27,6 @@ SOFTWARE.
 package notif
 
 import (
-	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"time"
 )
@@ -41,13 +40,6 @@ const (
 	PriInformational
 )
 
-type Agent struct {
-	NotifColl    *mgo.Collection
-	AuthColl     *mgo.Collection
-	MethodColl   *mgo.Collection
-	RuleColl     *mgo.Collection
-	UserinfoColl *mgo.Collection
-}
 
 // Representations of various documents in MongoDB
 
@@ -58,7 +50,7 @@ type Notif struct { //Notification document in MongoDB database
 	Description string        `bson:"description"`
 	Origtime    time.Time     `bson:"origtime"`
 	Priority    NotifPri      `bson:"priority"`
-	FromDomain  string        `bson:"fromdomain"`
+	From        string        `bson:"fromdomain"`  //TODO: rename field 'from'
 	Expires     time.Time     `bson:"expires"`
 	Subject     string        `bson:"subject"`
 	Body        string        `bson:"body"`

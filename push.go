@@ -30,6 +30,7 @@ import (
 	"bitbucket.org/ckvist/twilio/twirest"
 	"fmt"
 	"github.com/jimfenton/notif-agent/notif"
+	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"net/url"
 	"regexp"
@@ -52,16 +53,16 @@ const (
 	ModeVoice
 )
 
-func ProcessRules(ag notif.Agent, n notif.Notif, a notif.Auth, user notif.Userinfo) {
+func ProcessRules(n notif.Notif, ruleColl *mgo.Collection, methodColl *mgo.Collection, user notif.Userinfo) {
 	var m Method
 	var r notif.Rule
 	var u []bson.ObjectId
-	rules := ag.RuleColl.Find(bson.M{"user_id": n.UserID}).Iter()
+	rules := ruleColl.Find(bson.M{"user_id": n.UserID}).Iter()
 
 ruleloop:
 	for rules.Next(&r) {
 		if r.Active &&
-			(r.Domain == "" || r.Domain == a.Domain) &&
+			(r.Domain == "" || r.Domain == n.From) &&
 			(r.Priority == 0 || r.Priority == n.Priority) {
 
 			// check to make sure each method only executed once per notif
@@ -71,7 +72,7 @@ ruleloop:
 				} // if mu
 			} // for mu
 			u = append(u, r.Method)
-			err := ag.MethodColl.FindId(r.Method).One(&m)
+			err := methodColl.FindId(r.Method).One(&m)
 			if err != nil {
 				fmt.Println(err)
 				return
