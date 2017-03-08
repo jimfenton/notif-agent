@@ -2,7 +2,7 @@
 
 agent.go - Prototype notification agent
 
-Copyright (c) 2015 Jim Fenton
+Copyright (c) 2015, 2017 Jim Fenton
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to
@@ -29,8 +29,8 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
+	"database/sql"
+	"github.com/lib/pq"
 	"github.com/jimfenton/notif-agent/notif"
 	"os"
 )
@@ -48,14 +48,14 @@ func main() {
 	}
 
 	// End test stuff
-
-	uri := "mongodb://localhost/notif"
-	sess, err := mgo.Dial(uri)
+	// TODO: parameterize hostname, especially password
+	db, err := sql.Open("postgres", "user=notifs dbname=notifs host=altmode.net password=9gZaCGVl02nd")
 	if err != nil {
-		fmt.Printf("Can't connect to mongo, go error %v\n", err)
+		fmt.Printf("Can't connect to database, go error %v\n", err)
 		os.Exit(1)
 	}
-	defer sess.Close()
+	
+	defer db.Close()
 
 	// Channel for notif collectors
 	cc:= make(chan notif.Notif, 10)
@@ -69,11 +69,11 @@ func main() {
 
 	for notif := range cc {
 
-		err = userinfoColl.Find(bson.M{"user_id": notif.UserID}).One(&uinfo)
+		err, uinfo := db.QueryRow(`SELECT * FROM userext WHERE UserID == $1`, notif.UserID)
 		if err != nil {
 			fmt.Printf("Can't retrieve user info for push, go error %v\n", err) // non-fatal
 		} else {
-			ProcessRules(notif, ruleColl, methodColl, uinfo)
+			ProcessRules(notif, db, uinfo)
 		}
 	}
 	
