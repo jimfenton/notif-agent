@@ -1,4 +1,4 @@
-#N&#x014d;tifs Agent
+# N&#x014d;tifs Agent
 
 N&#x014d;tifs (short for notifications) provides a method for users to receive opt-in notifications from services of their choice. Examples of such services (notifiers) include emergency alerts, messages from personal devices like alarm systems, news alerts, newsletters, and advertising. A more complete description of N&#x014d;tifs can be found [here](https://altmode.org/notifs).
 
@@ -21,4 +21,6 @@ The SQL database used by the N&#x014d;tifs agent is specified through a configur
 
 It is highly recommended that the database be password protected (and not with "whatever")!
 
-The agent does not attempt to daemonize itself. One way to run the agent in the background is to use `nohup notif-agent &`
+The agent does not attempt to daemonize itself. One way to run the agent in the background is to use:
+
+`nohup notif-agent &`
