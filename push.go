@@ -2,7 +2,7 @@
 
 push.go - Push notifications for prototype notification agent
 
-Copyright (c) 2015 Jim Fenton
+Copyright (c) 2015, 2017 Jim Fenton
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to
@@ -29,22 +29,22 @@ package main
 import (
 	"bitbucket.org/ckvist/twilio/twirest"
 	"fmt"
+	"database/sql"
+	_ "github.com/lib/pq"
 	"github.com/jimfenton/notif-agent/notif"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
 	"net/url"
 	"regexp"
 	"strings"
 )
 
 type Method struct {
-	Id       bson.ObjectId `bson:"_id"`
-	User     bson.ObjectId `bson:"user_id"`
-	Active   bool          `bson:"active"`
-	Name     string        `bson:"name"`
-	Mode     int           `bson:"type"` //TODO: Change the field name to "mode"
-	Address  string        `bson:"address"`
-	Preamble string        `bson:"preamble"`
+	Id       int //`bson:"_id"`
+	User     int //`bson:"user_id"`
+	Active   bool          //`bson:"active"`
+	Name     string        //`bson:"name"`
+	Mode     int           //`bson:"type"` //TODO: Change field name to "mode"
+	Address  string        //`bson:"address"`
+	Preamble string        //`bson:"preamble"`
 }
 
 const (
@@ -53,14 +53,15 @@ const (
 	ModeVoice
 )
 
-func ProcessRules(n notif.Notif, ruleColl *mgo.Collection, methodColl *mgo.Collection, user notif.Userinfo) {
+func ProcessRules(n notif.Notif, db *sql.DB, user notif.Userinfo) {
 	var m Method
 	var r notif.Rule
-	var u []bson.ObjectId
-	rules := ruleColl.Find(bson.M{"user_id": n.UserID}).Iter()
+	var u []int
+	rules, err := db.Query(`SELECT active, priority, domain, method_id FROM rule WHERE user_id = $1`, n.UserID)
 
 ruleloop:
-	for rules.Next(&r) {
+	for rules.Next() {
+		err = rules.Scan(&r.Active, &r.Priority, &r.Domain, &r.Method)
 		if r.Active &&
 			(r.Domain == "" || r.Domain == n.From) &&
 			(r.Priority == 0 || r.Priority == n.Priority) {
@@ -72,7 +73,7 @@ ruleloop:
 				} // if mu
 			} // for mu
 			u = append(u, r.Method)
-			err := methodColl.FindId(r.Method).One(&m)
+			err = db.QueryRow(`SELECT id, user_id, active, name, type, address, preamble FROM method WHERE id == $1`,r.Method).Scan(&m.Id, &m.User, &m.Active, &m.Name, &m.Mode, &m.Address, &m.Preamble)
 			if err != nil {
 				fmt.Println(err)
 				return

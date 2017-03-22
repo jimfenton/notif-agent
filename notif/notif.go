@@ -2,7 +2,7 @@
 
 notif.go - Notification definitions and utilities
 
-Copyright (c) 2015 Jim Fenton
+Copyright (c) 2015, 2017 Jim Fenton
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to
@@ -27,7 +27,6 @@ SOFTWARE.
 package notif
 
 import (
-	"gopkg.in/mgo.v2/bson"
 	"time"
 )
 
@@ -44,61 +43,62 @@ const (
 // Representations of various documents in MongoDB
 
 type Notif struct { //Notification document in MongoDB database
-	Id          bson.ObjectId `bson:"_id"`
-	UserID      bson.ObjectId `bson:"user_id"`
-	To          string        `bson:"to"`
-	Description string        `bson:"description"`
-	Origtime    time.Time     `bson:"origtime"`
-	Priority    NotifPri      `bson:"priority"`
-	From        string        `bson:"fromdomain"`  //TODO: rename field 'from'
-	Expires     time.Time     `bson:"expires"`
-	Subject     string        `bson:"subject"`
-	Body        string        `bson:"body"`
-	NotID       string        `bson:"notID"`
-	RecvTime    time.Time     `bson:"recvtime"`
-	RevCount    int           `bson:"revcount"`
-	Read        bool          `bson:"read"`
-	ReadTime    time.Time     `bson:"readtime"`
-	Deleted     bool          `bson:"deleted"`
+	Id          int //`bson:"_id"`
+	To          string        //`bson:"to"`
+	Description string        //`bson:"description"`
+	Origtime    time.Time     //`bson:"origtime"`
+	Priority    NotifPri      //`bson:"priority"`
+	From        string        //`bson:"fromdomain"`  //TODO: rename field 'from'
+	Expires     time.Time     //`bson:"expires"`
+	Subject     string        //`bson:"subject"`
+	Body        string        //`bson:"body"`
+	NotID       string        //`bson:"notID"`
+	RecvTime    time.Time     //`bson:"recvtime"`
+	RevCount    int           //`bson:"revcount"`
+	Read        bool          //`bson:"read"`
+	ReadTime    time.Time     //`bson:"readtime"`
+	Deleted     bool          //`bson:"deleted"`
+	Source      string
+	UserID      int           //`bson:"user_id"`
 }
 
 type Auth struct {
-	Id          bson.ObjectId `bson:"_id"`
-	UserID      bson.ObjectId `bson:"user_id"`
-	Address     string        `bson:"address"`
-	Domain      string        `bson:"domain"`
-	Description string        `bson:"description"`
-	Created     time.Time     `bson:"created"` //not used in agent
-	Maxpri      NotifPri      `bson:"maxpri"`
-	Latest      time.Time     `bson:"latest"`
-	Count       int           `bson:"count"`
-	Active      bool          `bson:"active"`
-	Expiration  time.Time     `bson:"expiration"`
-	Deleted     bool          `bson:"deleted"`
+	Id          int //`bson:"_id"`
+	UserID      int //`bson:"user_id"`
+	Address     string        //`bson:"address"`
+	Domain      string        //`bson:"domain"`
+	Description string        //`bson:"description"`
+	Created     time.Time     //`bson:"created"` //not used in agent
+	Maxpri      NotifPri      //`bson:"maxpri"`
+	Latest      time.Time     //`bson:"latest"`
+	Count       int           //`bson:"count"`
+	Active      bool          //`bson:"active"`
+	Expiration  time.Time     //`bson:"expiration"`
+	Deleted     bool          //`bson:"deleted"`
 }
 
 type Userinfo struct {
-	Id     bson.ObjectId `bson:"_id"`
-	UserID bson.ObjectId `bson:"user_id"`
-	Count  int           `bson:"count"`
-	//	EmailUsername       string        `bson:"email_username"`
-	EmailServer         string    `bson:"email_server"`
-	EmailPort           int       `bson:"email_port"`
-	EmailFrom           string    `bson:"email_from"`
-	EmailSecurity       int       `bson:"email_security"`
-	EmailAuthentication int       `bson:"email_authentication"`
-	Created             time.Time `bson:"created"`
-	Latest              time.Time `bson:"latest"`
-	TwilioSID           string    `bson:"twilio_sid"`
-	TwilioToken         string    `bson:"twilio_token"`
-	TwilioFrom          string    `bson:"twilio_from"`
+	Id     int //`bson:"_id"`
+	UserID int //`bson:"user_id"`
+	Count  int //`bson:"count"`
+	EmailUsername       string    //`bson:"email_username"`
+	EmailServer         string    //`bson:"email_server"`
+	EmailPort           int       //`bson:"email_port"`
+	EmailFrom           string    //`bson:"email_from"`
+	EmailSecurity       int       //`bson:"email_security"`
+	EmailAuthentication int       //`bson:"email_authentication"`
+	Created             time.Time //`bson:"created"`
+	Latest              time.Time //`bson:"latest"`
+	TwilioSID           string    //`bson:"twilio_sid"`
+	TwilioToken         string    //`bson:"twilio_token"`
+	TwilioFrom          string    //`bson:"twilio_from"`
 }
 
 type Rule struct {
-	Id       bson.ObjectId `bson:"_id"`
-	UserID   bson.ObjectId `bson:"user_id"`
-	Domain   string        `bson:"domain"`
-	Priority NotifPri      `bson:"priority"`
-	Active   bool          `bson:"active"`
-	Method   bson.ObjectId `bson:"method_id"`
+	Id       int //`bson:"_id"`
+	UserID   int //`bson:"user_id"`
+	Domain   string        //`bson:"domain"`
+	Priority NotifPri      //`bson:"priority"`
+	Active   bool          //`bson:"active"`
+	Method   int //`bson:"method_id"`
 }

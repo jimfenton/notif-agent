@@ -2,7 +2,7 @@
 
 native.go - Native notif collector for prototype notification agent
 
-Copyright (c) 2015 Jim Fenton
+Copyright (c) 2015, 2017 Jim Fenton
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to
@@ -28,18 +28,23 @@ package main
 
 /* Design philosophy:
 
-The code in this file is a goroutine that deals with the collection of "native" notifs -- those that are sent via the Notifs API (as opposed to those collected from other services, such as RSS and Twitter). Since the Authorizations collection (database table) is associated only with native notifs, it is handled exclusively by this file in the agent.
+The code in this file is a goroutine that deals with the collection of
+"native" notifs -- those that are sent via the Notifs API (as opposed
+to those collected from other services, such as RSS and
+Twitter). Since the Authorizations collection (database table) is
+associated only with native notifs, it is handled exclusively by this
+file in the agent.
 
 */
 
 import (
-	"code.google.com/p/go-uuid/uuid"
+	"database/sql"
+	_ "github.com/lib/pq"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/jimfenton/notif-agent/notif"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
+	"github.com/pborman/uuid"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -48,9 +53,7 @@ import (
 )
 
 type agent struct {
-	NotifColl    *mgo.Collection
-	AuthColl     *mgo.Collection
-	UserinfoColl *mgo.Collection
+	Db           *sql.DB
 	CollChan     chan notif.Notif
 }
 
@@ -78,6 +81,43 @@ type notifPayload struct {
 	Body     string         `json:"body"` //May become MIME-like JSON
 }
 
+// Find an authorization by address
+func findAuth(ag agent, addr string, auth *notif.Auth) error {
+	err := ag.Db.QueryRow(`SELECT id,address,domain,description,created,maxpri,count,active,deleted,user_id FROM public.authorization WHERE address = $1`,addr).Scan(&auth.Id,
+		&auth.Address,
+		&auth.Domain,
+		&auth.Description,
+		&auth.Created,
+		&auth.Maxpri,
+		&auth.Count,
+		&auth.Active,
+		&auth.Deleted,
+		&auth.UserID)
+	return err // TODO: removed Latest, Expiration due to conversion issues from nil
+}
+
+// Find a notification by ID
+func findNotif(ag agent, notid string, notif *notif.Notif) error {
+	err := ag.Db.QueryRow(`SELECT id,userid,toaddr,description,origtime,priority,fromdomain,expires,subject,body,notid,recvtime,revcount,read,source,deleted FROM notification WHERE notid = $1`,notid).Scan(&notif.Id,
+		&notif.UserID,
+		&notif.To,
+		&notif.Description,
+		&notif.Origtime,
+		&notif.Priority,
+		&notif.From,
+		&notif.Expires,
+		&notif.Subject,
+		&notif.Body,
+		&notif.NotID,
+		&notif.RecvTime,
+		&notif.RevCount,
+		&notif.Read,
+//		&notif.ReadTime, //Removed because of nil time problem
+		&notif.Source,
+		&notif.Deleted)
+	return err
+}
+
 // Handle a single native Notif API request
 
 func (ag agent) ServeHTTP(
@@ -89,7 +129,6 @@ func (ag agent) ServeHTTP(
 	var npr notifProtected
 	var nd notif.Notif
 	var auth notif.Auth
-	var uinfo notif.Userinfo
 	var body []byte
 	var payload []byte
 	var flatload []string //"flattened" payload (header.payload.sig each base64)
@@ -156,9 +195,10 @@ func (ag agent) ServeHTTP(
 
 	switch r.Method {
 	case "POST":
-		err = ag.AuthColl.Find(bson.M{"address": addr}).One(&auth)
+		err = findAuth(ag, addr, &auth)
 		if err != nil || auth.Deleted {
 			w.WriteHeader(http.StatusNotFound)
+			fmt.Println("Authorization not found: ",addr," ",err)
 			fmt.Fprint(w, "Authorization not found")
 			return
 		}
@@ -170,6 +210,7 @@ func (ag agent) ServeHTTP(
 		}
 
 		if checkSig(npr, w, auth, flatload) {
+//TODO Should there be an error raised here?
 			return
 		}
 
@@ -179,7 +220,6 @@ func (ag agent) ServeHTTP(
 			// Wonder if a different result code should be returned here
 		}
 
-		nd.Id = bson.NewObjectId()
 		nd.UserID = auth.UserID
 		nd.To = addr
 		nd.Origtime = np.Origtime
@@ -193,38 +233,50 @@ func (ag agent) ServeHTTP(
 		nd.RecvTime = time.Now()
 
 		//Update the notification count and time on the authorization
-		auth.Count += 1
-		auth.Latest = nd.RecvTime
-		err = ag.AuthColl.UpdateId(auth.Id, auth)
+
+		stmt, err := ag.Db.Prepare("UPDATE public.authorization SET count = count+1, latest = $1 WHERE id = $2")
 		if err != nil {
-			fmt.Println("Error updating authorization: ", err)
+			fmt.Println("Authorization update error: ", err)
+			return
+		}
+
+		_, err = stmt.Exec(nd.RecvTime, auth.Id)
+		if err !=nil {
+			fmt.Println("Authorization update error: ", err)
 			return
 		}
 
 		//Writing the notif itself should probably be common code with other collectors
 
-		err = ag.NotifColl.Insert(nd)
+		stmt, err = ag.Db.Prepare(`INSERT INTO notification (userid,toaddr,description,origtime,priority,fromdomain,expires,subject,body,notid,recvtime,revcount,read,readtime,source,deleted) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`)
 		if err != nil {
-			fmt.Println("Insert error: ", err)
+			fmt.Println("Notification insert prepare error: ", err)
 			return
 		}
-
+		_, err = stmt.Exec(nd.UserID,nd.To,nd.Description,nd.Origtime,nd.Priority,nd.From,nd.Expires,nd.Subject,nd.Body,nd.NotID,nd.RecvTime,0,false,nil,"native",false)
+		if err != nil {
+			fmt.Println("Notification insert error: ", err)
+			return
+		}
+		
 		//Update the user's notification count and latest notification time
-		err = ag.UserinfoColl.Find(bson.M{"user_id": auth.UserID}).One(&uinfo)
+
+		stmt, err = ag.Db.Prepare("UPDATE userext SET count = count+1, latest = $1 WHERE user_id = $2")
 		if err != nil {
-			fmt.Println("POST: Error finding user info document: ", err, auth.UserID)
-			return
-		}
-		uinfo.Count += 1
-		uinfo.Latest = nd.RecvTime
-		err = ag.UserinfoColl.UpdateId(uinfo.Id, uinfo)
-		if err != nil {
-			fmt.Println("POST: Error updating user info: ", err)
+			fmt.Println("Userinfo update error: ", err)
 			return
 		}
 
+		_, err = stmt.Exec(nd.RecvTime, auth.UserID)
+		if err !=nil {
+			fmt.Println("Userinfo update error: ", err)
+			return
+		}
+
+		
 		//Tell the notifier the notification ID in the response
 		resp := "{ \"notid\": \"" + nd.NotID + "\" }"
+		fmt.Println("Response: ",resp)
 		fmt.Fprint(w, resp)
 
 		ag.CollChan <- nd
@@ -232,17 +284,16 @@ func (ag agent) ServeHTTP(
 		//Read the rules and execute any required push actions
 		//		ProcessRules(ag, nd, auth, uinfo)
 
-	case "PUT":
-		err = ag.NotifColl.Find(bson.M{"notID": addr}).One(&nd)
+	case "PUT":   //Modify an existing notif by ID
+		err = findNotif(ag, addr, &nd)
 		if err != nil {
-			fmt.Println("NotID not found: ", err, " ", addr)
+			fmt.Println("PUT: NotID not found: ", err, " ", addr)
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, "PUT: Notification ID not found")
 			return
 		}
 
-		err = ag.AuthColl.Find(bson.M{"address": nd.To}).One(&auth)
-
+		err = findAuth(ag, nd.To, &auth)
 		if err != nil || auth.Deleted {
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, "PUT: Authorization not found")
@@ -276,55 +327,73 @@ func (ag agent) ServeHTTP(
 		nd.UserID = auth.UserID //should already be there, but just in case
 
 		auth.Latest = nd.RecvTime
-		err = ag.AuthColl.UpdateId(auth.Id, auth)
+		
+		// Update latest notification time on userinfo
+		
+		stmt, err := ag.Db.Prepare("UPDATE userext SET latest = $1 WHERE user_id = $2")
 		if err != nil {
-			fmt.Println("PUT: Error updating authorization: ", err)
+			fmt.Println("PUT: Userinfo update prepare error: ", err)
 			return
 		}
 
-		//Update the user's latest notification time (but not notification count since we're modifying)
-		err = ag.UserinfoColl.Find(bson.M{"user_id": auth.UserID}).One(&uinfo)
-		if err != nil {
-			fmt.Println("POST: Error finding user info document: ", err, auth.UserID)
+		_, err = stmt.Exec(nd.RecvTime, auth.UserID)
+		if err !=nil {
+			fmt.Println("PUT: Userinfo update error: ", err)
 			return
 		}
 
-		uinfo.Latest = nd.RecvTime
-		err = ag.UserinfoColl.UpdateId(uinfo.Id, uinfo)
+		// Update latest notification time on authorization
+		stmt, err = ag.Db.Prepare("UPDATE public.authorization SET latest = $1 WHERE id = $2")
 		if err != nil {
-			fmt.Println("POST: Error updating user info: ", err)
+			fmt.Println("PUT: Authorization update prepare error: ", err)
 			return
 		}
+
+		_, err = stmt.Exec(nd.RecvTime, auth.Id)
+		if err !=nil {
+			fmt.Println("PUT: Authorization update error: ", err)
+			return
+		}
+
 
 		//Read the rules and execute any required push actions
 		//		ProcessRules(ag, nd, auth, uinfo)
 
-		err = ag.NotifColl.UpdateId(nd.Id, nd)
+		stmt, err = ag.Db.Prepare("UPDATE notification SET origtime = $1, expires = $2, subject = $3, priority = $4, body = $5, recvtime = $6, revcount=revcount+1, read=false WHERE notid = $7")
 		if err != nil {
-			fmt.Println("PUT: Error updating Notif: ", err, " ", addr)
+			fmt.Println("PUT: Notif update prepare error: ", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprint(w, "PUT: Error updating Notif")
 			return
 		}
 
+		_, err = stmt.Exec(np.Origtime, np.Expires, np.Subject, np.Priority, np.Body, time.Now(), nd.NotID)
+		if err !=nil {
+			fmt.Println("PUT: Notif update error: ", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "PUT: Error updating Notif")
+			return
+		}
+
+
 		ag.CollChan <- nd
 
 	case "DELE":
-		err = ag.NotifColl.Find(bson.M{"notid": addr}).One(&nd)
+		err = findNotif(ag, addr, &nd)
 
 		if err != nil {
-			fmt.Println("NotID not found: ", err, " ", addr)
+			fmt.Println("DELE: Notification ID not found: ", err, " ", addr)
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, "DELE: Notification ID not found")
 			return
 		}
 
-		err = ag.AuthColl.Find(bson.M{"address": nd.To}).One(&auth)
+		err = findAuth(ag, nd.To, &auth)
 
 		if err != nil {
-			fmt.Println("Auth not found: ", err, " ", nd.To)
+			fmt.Println("DELE: Authorization not found: ", err, " ", nd.To)
 			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprint(w, "PUT: Authorization not found")
+			fmt.Fprint(w, "DELE: Authorization not found")
 			return
 		}
 
@@ -335,14 +404,22 @@ func (ag agent) ServeHTTP(
 		nd.Deleted = true
 		nd.RecvTime = time.Now()
 		nd.UserID = auth.UserID //should already be there, but just in case
-
-		err = ag.NotifColl.UpdateId(nd.Id, nd)
+		stmt, err := ag.Db.Prepare("UPDATE notification SET recvtime = $1, deleted=true WHERE notid = $7")
 		if err != nil {
-			fmt.Println("DELE: Error updating Notif: ", err, " ", addr)
+			fmt.Println("DELE: Notif update prepare error: ", err)
 			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprint(w, "DELE: Error updating Notif")
+			fmt.Fprint(w, "DELE: Notif update prepare error")
 			return
 		}
+
+		_, err = stmt.Exec(time.Now(), nd.NotID)
+		if err !=nil {
+			fmt.Println("DELE: Notif update error: ", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "DELE: Notif update error")
+			return
+		}
+
 
 	} //method switch
 }
@@ -361,11 +438,9 @@ func pad64(input string) string {
 	}
 }
 
-func collectNative(sess *mgo.Session, c chan notif.Notif) {
+func collectNative(db *sql.DB, c chan notif.Notif) {
 	var ag agent //Probably doesn't belong in Notif package
-	ag.NotifColl = sess.DB("").C("notification")
-	ag.AuthColl = sess.DB("").C("authorization")
-	ag.UserinfoColl = sess.DB("").C("userext")
+	ag.Db = db
 	ag.CollChan = c
 
 	log.Fatal(http.ListenAndServe(":5342", ag))
