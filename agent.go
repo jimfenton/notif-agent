@@ -67,10 +67,9 @@ func main() {
 	var adc AgentDbCfg
 
 	dat, err := ioutil.ReadFile("/etc/notifs/agent.cfg") //keeps passwords out of source code
-	fmt.Printf("%s\n",string(dat))
 	err = json.Unmarshal(dat, &adc)
 	if err != nil {
-		fmt.Printf("DB config unmarshal error\n")
+		fmt.Println("DB config unmarshal error:",err)
 		os.Exit(1)
 	}
 
@@ -79,7 +78,7 @@ func main() {
 	// {"host":"localhost","dbname":"notifs","user":"notifs","password":"whatever"}
 	db, err := sql.Open("postgres", fmt.Sprintf("user=%s dbname=%s host=%s password=%s",adc.User,adc.Dbname,adc.Host,adc.Password))
 	if err != nil {
-		fmt.Printf("Can't connect to database, go error %v\n", err)
+		fmt.Println("Can't connect to database:", err)
 		os.Exit(1)
 	}
 	
@@ -94,7 +93,7 @@ func main() {
 
 		err := findUser(db, notif.UserID, &user)
 		if err != nil {
-			fmt.Printf("Can't retrieve user info for push, go error %v\n", err) // non-fatal
+			fmt.Println("Can't retrieve user info for push:", err) // non-fatal
 		} else {
 			ProcessRules(notif, db, user)
 		}

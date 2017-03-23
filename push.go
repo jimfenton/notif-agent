@@ -58,10 +58,20 @@ func ProcessRules(n notif.Notif, db *sql.DB, user notif.Userinfo) {
 	var r notif.Rule
 	var u []int
 	rules, err := db.Query(`SELECT active, priority, domain, method_id FROM rule WHERE user_id = $1`, n.UserID)
+	if err != nil {
+		fmt.Println("Push: Ruleset query error: ", err, " user ", n.UserID)
+		return
+	}
+
 
 ruleloop:
 	for rules.Next() {
 		err = rules.Scan(&r.Active, &r.Priority, &r.Domain, &r.Method)
+		if err != nil {
+			fmt.Println("Push: Rule scan error: ",err)
+			continue
+		}
+
 		if r.Active &&
 			(r.Domain == "" || r.Domain == n.From) &&
 			(r.Priority == 0 || r.Priority == n.Priority) {
@@ -73,12 +83,11 @@ ruleloop:
 				} // if mu
 			} // for mu
 			u = append(u, r.Method)
-			err = db.QueryRow(`SELECT id, user_id, active, name, type, address, preamble FROM method WHERE id == $1`,r.Method).Scan(&m.Id, &m.User, &m.Active, &m.Name, &m.Mode, &m.Address, &m.Preamble)
+			err = db.QueryRow(`SELECT id, user_id, active, name, type, address, preamble FROM method WHERE id = $1`,r.Method).Scan(&m.Id, &m.User, &m.Active, &m.Name, &m.Mode, &m.Address, &m.Preamble)
 			if err != nil {
-				fmt.Println(err)
-				return
+				fmt.Println("Push: Method query error: ",err)
+				continue
 			}
-			//check err here
 			doMethod(m, n, user)
 		} //if r.Active...
 
