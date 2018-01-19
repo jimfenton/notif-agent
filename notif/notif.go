@@ -77,6 +77,7 @@ type Auth struct {
 	Deleted     bool          //`bson:"deleted"`
 }
 
+// Per-user settings and information
 type Userinfo struct {
 	Id     int //`bson:"_id"`
 	UserID int //`bson:"user_id"`
@@ -89,7 +90,7 @@ type Userinfo struct {
 	EmailAuthentication int       //`bson:"email_authentication"`
 	Created             time.Time //`bson:"created"`
 	Latest              time.Time //`bson:"latest"`
-	TwilioSID           string    //`bson:"twilio_sid"`
+	TwilioSID           string    //`bson:"twilio_sid"`  (Overrides site setting if present)
 	TwilioToken         string    //`bson:"twilio_token"`
 	TwilioFrom          string    //`bson:"twilio_from"`
 }
@@ -101,4 +102,12 @@ type Rule struct {
 	Priority NotifPri      //`bson:"priority"`
 	Active   bool          //`bson:"active"`
 	Method   int //`bson:"method_id"`
+}
+
+// Global settings for the site
+// overridden by user settings if present
+type Siteinfo struct {
+	TwilioSID           string    //`bson:"twilio_sid"`
+	TwilioToken         string    //`bson:"twilio_token"`
+	TwilioFrom          string    //`bson:"twilio_from"`
 }

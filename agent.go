@@ -61,9 +61,24 @@ func findUser(db *sql.DB, userID int, user *notif.Userinfo) error {
 	return err
 }
 
+func findSite(db *sql.DB, site *notif.Siteinfo) error {
+	var twilioSID sql.NullString
+	var twilioToken sql.NullString
+	var twilioFrom sql.NullString
+	
+	err := db.QueryRow(`SELECT twilio_sid,twilio_token,twilio_from FROM site`).Scan(&twilioSID,
+		&twilioToken,
+		&twilioFrom)
+	site.TwilioSID = twilioSID.String
+	site.TwilioToken = twilioToken.String
+	site.TwilioFrom = twilioFrom.String
+	return err
+}
+
 func main() {
 
 	var user notif.Userinfo
+	var site notif.Siteinfo
 	var adc AgentDbCfg
 
 	dat, err := ioutil.ReadFile("/etc/notifs/agent.cfg") //keeps passwords out of source code
@@ -84,6 +99,12 @@ func main() {
 	
 	defer db.Close()
 
+	//Collect site configuration info
+	err = findSite(db, &site)
+	if err != nil {
+		fmt.Println("Can't retrieve site configuration info:", err) // non-fatal for now at least
+	}
+
 	// Channel for notif collectors
 	cc:= make(chan notif.Notif, 10)
 
@@ -95,7 +116,7 @@ func main() {
 		if err != nil {
 			fmt.Println("Can't retrieve user info for push:", err) // non-fatal
 		} else {
-			ProcessRules(notif, db, user)
+			ProcessRules(notif, db, user, site)
 		}
 	}
 	

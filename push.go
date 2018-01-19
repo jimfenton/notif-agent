@@ -53,7 +53,7 @@ const (
 	ModeVoice
 )
 
-func ProcessRules(n notif.Notif, db *sql.DB, user notif.Userinfo) {
+func ProcessRules(n notif.Notif, db *sql.DB, user notif.Userinfo, site notif.Siteinfo) {
 	var m Method
 	var r notif.Rule
 	var u []int
@@ -88,29 +88,39 @@ ruleloop:
 				fmt.Println("Push: Method query error: ",err)
 				continue
 			}
-			doMethod(m, n, user)
+			doMethod(m, n, user, site)
 		} //if r.Active...
 
 	} // for rules.Next (ruleloop)
 }
 
-func doMethod(m Method, n notif.Notif, user notif.Userinfo) {
+func doMethod(m Method, n notif.Notif, user notif.Userinfo, site notif.Siteinfo) {
+	twilioSID := site.TwilioSID
+	twilioToken := site.TwilioToken
+	twilioFrom := site.TwilioFrom
+
+	if user.TwilioSID != "" {
+		twilioSID = user.TwilioSID
+		twilioToken = user.TwilioToken
+		twilioFrom = user.TwilioFrom
+	}
+	
 	switch m.Mode {
 	case ModeText:
 		if m.Address == "" {
 			fmt.Println("Can't send text: method address empty")
 			return
 		}
-		if user.TwilioFrom == "" {
+		if twilioFrom == "" {
 			fmt.Println("Can't send text: user 'from' phone number empty")
 			return
 		}
-		twclient := twirest.NewClient(user.TwilioSID, user.TwilioToken)
-		//should probably cache twclient for reuse
+		twclient := twirest.NewClient(twilioSID, twilioToken)
+		//TODO: should probably cache twclient for reuse (are we leaking these now?)
 		msg := twirest.SendMessage{
 			Text: m.Preamble + ": " + n.Subject,
 			To:   e164norm(m.Address),
-			From: e164norm(user.TwilioFrom)}
+			From: e164norm(twilioFrom)}
 		_, err := twclient.Request(msg)
 		if err != nil {
 			fmt.Println("Twilio text request error: ", err)
@@ -122,16 +132,16 @@ func doMethod(m Method, n notif.Notif, user notif.Userinfo) {
 			fmt.Println("Can't send voice message: method address empty")
 			return
 		}
-		if user.TwilioFrom == "" {
+		if twilioFrom == "" {
 			fmt.Println("Can't send voice message: user 'from' phone number empty")
 			return
 		}
-		twclient := twirest.NewClient(user.TwilioSID, user.TwilioToken)
-		//again, need to cache this (probably in Userinfo)
+		twclient := twirest.NewClient(twilioSID, twilioToken)
+		//TODO: again, need to cache this (probably in Userinfo)
 		twimlurl := "http://twimlets.com/message?Message%5B0%5D=" + url.QueryEscape(m.Preamble+" "+n.Subject)
 
 		msg := twirest.MakeCall{
-			From: e164norm(user.TwilioFrom),
+			From: e164norm(twilioFrom),
 			To:   e164norm(m.Address),
 			Url:  twimlurl}
 		_, err := twclient.Request(msg)
