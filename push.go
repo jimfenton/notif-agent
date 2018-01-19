@@ -28,23 +28,23 @@ package main
 
 import (
 	"bitbucket.org/ckvist/twilio/twirest"
-	"fmt"
 	"database/sql"
-	_ "github.com/lib/pq"
+	"fmt"
 	"github.com/jimfenton/notif-agent/notif"
+	_ "github.com/lib/pq"
 	"net/url"
 	"regexp"
 	"strings"
 )
 
 type Method struct {
-	Id       int //`bson:"_id"`
-	User     int //`bson:"user_id"`
-	Active   bool          //`bson:"active"`
-	Name     string        //`bson:"name"`
-	Mode     int           //`bson:"type"` //TODO: Change field name to "mode"
-	Address  string        //`bson:"address"`
-	Preamble string        //`bson:"preamble"`
+	Id       int    //`bson:"_id"`
+	User     int    //`bson:"user_id"`
+	Active   bool   //`bson:"active"`
+	Name     string //`bson:"name"`
+	Mode     int    //`bson:"type"` //TODO: Change field name to "mode"
+	Address  string //`bson:"address"`
+	Preamble string //`bson:"preamble"`
 }
 
 const (
@@ -63,12 +63,11 @@ func ProcessRules(n notif.Notif, db *sql.DB, user notif.Userinfo, site notif.Sit
 		return
 	}
 
-
 ruleloop:
 	for rules.Next() {
 		err = rules.Scan(&r.Active, &r.Priority, &r.Domain, &r.Method)
 		if err != nil {
-			fmt.Println("Push: Rule scan error: ",err)
+			fmt.Println("Push: Rule scan error: ", err)
 			continue
 		}
 
@@ -83,9 +82,9 @@ ruleloop:
 				} // if mu
 			} // for mu
 			u = append(u, r.Method)
-			err = db.QueryRow(`SELECT id, user_id, active, name, type, address, preamble FROM method WHERE id = $1`,r.Method).Scan(&m.Id, &m.User, &m.Active, &m.Name, &m.Mode, &m.Address, &m.Preamble)
+			err = db.QueryRow(`SELECT id, user_id, active, name, type, address, preamble FROM method WHERE id = $1`, r.Method).Scan(&m.Id, &m.User, &m.Active, &m.Name, &m.Mode, &m.Address, &m.Preamble)
 			if err != nil {
-				fmt.Println("Push: Method query error: ",err)
+				fmt.Println("Push: Method query error: ", err)
 				continue
 			}
 			doMethod(m, n, user, site)
@@ -104,7 +103,7 @@ func doMethod(m Method, n notif.Notif, user notif.Userinfo, site notif.Siteinfo)
 		twilioToken = user.TwilioToken
 		twilioFrom = user.TwilioFrom
 	}
-	
+
 	switch m.Mode {
 	case ModeText:
 		if m.Address == "" {

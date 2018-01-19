@@ -27,25 +27,25 @@ SOFTWARE.
 package main
 
 import (
-	"fmt"
 	"database/sql"
 	"encoding/json"
-	_ "github.com/lib/pq"
+	"fmt"
 	"github.com/jimfenton/notif-agent/notif"
+	_ "github.com/lib/pq"
 	"io/ioutil"
 	"os"
 )
 
 type AgentDbCfg struct {
-	Host string `json:"host"`
-	User string `json:"user"`
-	Dbname string `json:"dbname"`
-	Password  string `json:"password"`
+	Host     string `json:"host"`
+	User     string `json:"user"`
+	Dbname   string `json:"dbname"`
+	Password string `json:"password"`
 }
 
 // Find an user record by ID
 func findUser(db *sql.DB, userID int, user *notif.Userinfo) error {
-	err := db.QueryRow(`SELECT id,email_username,email_server,email_port,email_authentication,email_security,twilio_sid,twilio_token,twilio_from,count,latest,created,user_id FROM userext WHERE user_id = $1`,userID).Scan(&user.Id,
+	err := db.QueryRow(`SELECT id,email_username,email_server,email_port,email_authentication,email_security,twilio_sid,twilio_token,twilio_from,count,latest,created,user_id FROM userext WHERE user_id = $1`, userID).Scan(&user.Id,
 		&user.EmailUsername,
 		&user.EmailServer,
 		&user.EmailPort,
@@ -65,7 +65,7 @@ func findSite(db *sql.DB, site *notif.Siteinfo) error {
 	var twilioSID sql.NullString
 	var twilioToken sql.NullString
 	var twilioFrom sql.NullString
-	
+
 	err := db.QueryRow(`SELECT twilio_sid,twilio_token,twilio_from FROM site`).Scan(&twilioSID,
 		&twilioToken,
 		&twilioFrom)
@@ -84,19 +84,19 @@ func main() {
 	dat, err := ioutil.ReadFile("/etc/notifs/agent.cfg") //keeps passwords out of source code
 	err = json.Unmarshal(dat, &adc)
 	if err != nil {
-		fmt.Println("DB config unmarshal error:",err)
+		fmt.Println("DB config unmarshal error:", err)
 		os.Exit(1)
 	}
 
 	// Database parameters are stored in JSON form in /etc/notifs/agent.cfg
 	// Sample configuration:
 	// {"host":"localhost","dbname":"notifs","user":"notifs","password":"whatever"}
-	db, err := sql.Open("postgres", fmt.Sprintf("user=%s dbname=%s host=%s password=%s",adc.User,adc.Dbname,adc.Host,adc.Password))
+	db, err := sql.Open("postgres", fmt.Sprintf("user=%s dbname=%s host=%s password=%s", adc.User, adc.Dbname, adc.Host, adc.Password))
 	if err != nil {
 		fmt.Println("Can't connect to database:", err)
 		os.Exit(1)
 	}
-	
+
 	defer db.Close()
 
 	//Collect site configuration info
@@ -106,9 +106,9 @@ func main() {
 	}
 
 	// Channel for notif collectors
-	cc:= make(chan notif.Notif, 10)
+	cc := make(chan notif.Notif, 10)
 
-	go collectNative(db, cc)  //Listen for native notifs
+	go collectNative(db, cc) //Listen for native notifs
 
 	for notif := range cc {
 
@@ -119,5 +119,5 @@ func main() {
 			ProcessRules(notif, db, user, site)
 		}
 	}
-	
+
 }

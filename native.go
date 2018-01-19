@@ -39,11 +39,11 @@ file in the agent.
 
 import (
 	"database/sql"
-	_ "github.com/lib/pq"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/jimfenton/notif-agent/notif"
+	_ "github.com/lib/pq"
 	"github.com/pborman/uuid"
 	"io/ioutil"
 	"log"
@@ -53,8 +53,8 @@ import (
 )
 
 type agent struct {
-	Db           *sql.DB
-	CollChan     chan notif.Notif
+	Db       *sql.DB
+	CollChan chan notif.Notif
 }
 
 type notifMsg struct { //Notification format "on the wire"
@@ -83,7 +83,7 @@ type notifPayload struct {
 
 // Find an authorization by address
 func findAuth(ag agent, addr string, auth *notif.Auth) error {
-	err := ag.Db.QueryRow(`SELECT id,address,domain,description,created,maxpri,count,active,deleted,user_id FROM public.authorization WHERE address = $1`,addr).Scan(&auth.Id,
+	err := ag.Db.QueryRow(`SELECT id,address,domain,description,created,maxpri,count,active,deleted,user_id FROM public.authorization WHERE address = $1`, addr).Scan(&auth.Id,
 		&auth.Address,
 		&auth.Domain,
 		&auth.Description,
@@ -98,7 +98,7 @@ func findAuth(ag agent, addr string, auth *notif.Auth) error {
 
 // Find a notification by ID
 func findNotif(ag agent, notid string, notif *notif.Notif) error {
-	err := ag.Db.QueryRow(`SELECT id,userid,toaddr,description,origtime,priority,fromdomain,expires,subject,body,notid,recvtime,revcount,read,source,deleted FROM notification WHERE notid = $1`,notid).Scan(&notif.Id,
+	err := ag.Db.QueryRow(`SELECT id,userid,toaddr,description,origtime,priority,fromdomain,expires,subject,body,notid,recvtime,revcount,read,source,deleted FROM notification WHERE notid = $1`, notid).Scan(&notif.Id,
 		&notif.UserID,
 		&notif.To,
 		&notif.Description,
@@ -112,7 +112,7 @@ func findNotif(ag agent, notid string, notif *notif.Notif) error {
 		&notif.RecvTime,
 		&notif.RevCount,
 		&notif.Read,
-//		&notif.ReadTime, //Removed because of nil time problem
+		//		&notif.ReadTime, //Removed because of nil time problem
 		&notif.Source,
 		&notif.Deleted)
 	return err
@@ -198,7 +198,7 @@ func (ag agent) ServeHTTP(
 		err = findAuth(ag, addr, &auth)
 		if err != nil || auth.Deleted {
 			w.WriteHeader(http.StatusNotFound)
-			fmt.Println("Authorization not found: ",addr," ",err)
+			fmt.Println("Authorization not found: ", addr, " ", err)
 			fmt.Fprint(w, "Authorization not found")
 			return
 		}
@@ -210,7 +210,7 @@ func (ag agent) ServeHTTP(
 		}
 
 		if checkSig(npr, w, auth, flatload) {
-//TODO Should there be an error raised here?
+			//TODO Should there be an error raised here?
 			return
 		}
 
@@ -241,7 +241,7 @@ func (ag agent) ServeHTTP(
 		}
 
 		_, err = stmt.Exec(nd.RecvTime, auth.Id)
-		if err !=nil {
+		if err != nil {
 			fmt.Println("Authorization update error: ", err)
 			return
 		}
@@ -253,12 +253,12 @@ func (ag agent) ServeHTTP(
 			fmt.Println("Notification insert prepare error: ", err)
 			return
 		}
-		_, err = stmt.Exec(nd.UserID,nd.To,nd.Description,nd.Origtime,nd.Priority,nd.From,nd.Expires,nd.Subject,nd.Body,nd.NotID,nd.RecvTime,0,false,nil,"native",false)
+		_, err = stmt.Exec(nd.UserID, nd.To, nd.Description, nd.Origtime, nd.Priority, nd.From, nd.Expires, nd.Subject, nd.Body, nd.NotID, nd.RecvTime, 0, false, nil, "native", false)
 		if err != nil {
 			fmt.Println("Notification insert error: ", err)
 			return
 		}
-		
+
 		//Update the user's notification count and latest notification time
 
 		stmt, err = ag.Db.Prepare("UPDATE userext SET count = count+1, latest = $1 WHERE user_id = $2")
@@ -268,15 +268,14 @@ func (ag agent) ServeHTTP(
 		}
 
 		_, err = stmt.Exec(nd.RecvTime, auth.UserID)
-		if err !=nil {
+		if err != nil {
 			fmt.Println("Userinfo update error: ", err)
 			return
 		}
 
-		
 		//Tell the notifier the notification ID in the response
 		resp := "{ \"notid\": \"" + nd.NotID + "\" }"
-		fmt.Println("Response: ",resp)
+		fmt.Println("Response: ", resp)
 		fmt.Fprint(w, resp)
 
 		ag.CollChan <- nd
@@ -284,7 +283,7 @@ func (ag agent) ServeHTTP(
 		//Read the rules and execute any required push actions
 		//		ProcessRules(ag, nd, auth, uinfo)
 
-	case "PUT":   //Modify an existing notif by ID
+	case "PUT": //Modify an existing notif by ID
 		err = findNotif(ag, addr, &nd)
 		if err != nil {
 			fmt.Println("PUT: NotID not found: ", err, " ", addr)
@@ -327,9 +326,9 @@ func (ag agent) ServeHTTP(
 		nd.UserID = auth.UserID //should already be there, but just in case
 
 		auth.Latest = nd.RecvTime
-		
+
 		// Update latest notification time on userinfo
-		
+
 		stmt, err := ag.Db.Prepare("UPDATE userext SET latest = $1 WHERE user_id = $2")
 		if err != nil {
 			fmt.Println("PUT: Userinfo update prepare error: ", err)
@@ -337,7 +336,7 @@ func (ag agent) ServeHTTP(
 		}
 
 		_, err = stmt.Exec(nd.RecvTime, auth.UserID)
-		if err !=nil {
+		if err != nil {
 			fmt.Println("PUT: Userinfo update error: ", err)
 			return
 		}
@@ -350,11 +349,10 @@ func (ag agent) ServeHTTP(
 		}
 
 		_, err = stmt.Exec(nd.RecvTime, auth.Id)
-		if err !=nil {
+		if err != nil {
 			fmt.Println("PUT: Authorization update error: ", err)
 			return
 		}
-
 
 		//Read the rules and execute any required push actions
 		//		ProcessRules(ag, nd, auth, uinfo)
@@ -368,13 +366,12 @@ func (ag agent) ServeHTTP(
 		}
 
 		_, err = stmt.Exec(np.Origtime, np.Expires, np.Subject, np.Priority, np.Body, time.Now(), nd.NotID)
-		if err !=nil {
+		if err != nil {
 			fmt.Println("PUT: Notif update error: ", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprint(w, "PUT: Error updating Notif")
 			return
 		}
-
 
 		ag.CollChan <- nd
 
@@ -413,13 +410,12 @@ func (ag agent) ServeHTTP(
 		}
 
 		_, err = stmt.Exec(time.Now(), nd.NotID)
-		if err !=nil {
+		if err != nil {
 			fmt.Println("DELE: Notif update error: ", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprint(w, "DELE: Notif update error")
 			return
 		}
-
 
 	} //method switch
 }
