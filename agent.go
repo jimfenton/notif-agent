@@ -45,19 +45,26 @@ type AgentDbCfg struct {
 
 // Find an user record by ID
 func findUser(db *sql.DB, userID int, user *notif.Userinfo) error {
+	var twilioSID sql.NullString
+	var twilioToken sql.NullString
+	var twilioFrom sql.NullString
+
 	err := db.QueryRow(`SELECT id,email_username,email_server,email_port,email_authentication,email_security,twilio_sid,twilio_token,twilio_from,count,latest,created,user_id FROM userext WHERE user_id = $1`, userID).Scan(&user.Id,
 		&user.EmailUsername,
 		&user.EmailServer,
 		&user.EmailPort,
 		&user.EmailAuthentication,
 		&user.EmailSecurity,
-		&user.TwilioSID,
-		&user.TwilioToken,
-		&user.TwilioFrom,
+		&twilioSID,
+		&twilioToken,
+		&twilioFrom,
 		&user.Count,
 		&user.Latest,
 		&user.Created,
 		&user.UserID)
+	user.TwilioSID = twilioSID.String
+	user.TwilioToken = twilioToken.String
+	user.TwilioFrom = twilioFrom.String
 	return err
 }
 

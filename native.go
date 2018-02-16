@@ -98,7 +98,7 @@ func findAuth(ag agent, addr string, auth *notif.Auth) error {
 
 // Find a notification by ID
 func findNotif(ag agent, notid string, notif *notif.Notif) error {
-	err := ag.Db.QueryRow(`SELECT id,userid,toaddr,description,origtime,priority,fromdomain,expires,subject,body,notid,recvtime,revcount,read,source,deleted FROM notification WHERE notid = $1`, notid).Scan(&notif.Id,
+	err := ag.Db.QueryRow(`SELECT id,user_id,toaddr,description,origtime,priority,fromdomain,expires,subject,body,notid,recvtime,revcount,read,source,deleted FROM notification WHERE notid = $1`, notid).Scan(&notif.Id,
 		&notif.UserID,
 		&notif.To,
 		&notif.Description,
@@ -248,7 +248,7 @@ func (ag agent) ServeHTTP(
 
 		//Writing the notif itself should probably be common code with other collectors
 
-		stmt, err = ag.Db.Prepare(`INSERT INTO notification (userid,toaddr,description,origtime,priority,fromdomain,expires,subject,body,notid,recvtime,revcount,read,readtime,source,deleted) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`)
+		stmt, err = ag.Db.Prepare(`INSERT INTO notification (user_id,toaddr,description,origtime,priority,fromdomain,expires,subject,body,notid,recvtime,revcount,read,readtime,source,deleted) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`)
 		if err != nil {
 			fmt.Println("Notification insert prepare error: ", err)
 			return
