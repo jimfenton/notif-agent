@@ -43,13 +43,15 @@ type AgentDbCfg struct {
 	Password string `json:"password"`
 }
 
-// Find an user record by ID
+// Find a user record by ID
 func findUser(db *sql.DB, userID int, user *notif.Userinfo) error {
 	var twilioSID sql.NullString
 	var twilioToken sql.NullString
 	var twilioFrom sql.NullString
+	var twitterAccessToken sql.NullString
+	var twitterAccessTokenSecret sql.NullString
 
-	err := db.QueryRow(`SELECT id,email_username,email_server,email_port,email_authentication,email_security,twilio_sid,twilio_token,twilio_from,count,latest,created,user_id FROM userext WHERE user_id = $1`, userID).Scan(&user.Id,
+	err := db.QueryRow(`SELECT id,email_username,email_server,email_port,email_authentication,email_security,twilio_sid,twilio_token,twilio_from,twitter_access_token,twitter_access_token_secret,count,latest,created,user_id FROM userext WHERE user_id = $1`, userID).Scan(&user.Id,
 		&user.EmailUsername,
 		&user.EmailServer,
 		&user.EmailPort,
@@ -58,6 +60,8 @@ func findUser(db *sql.DB, userID int, user *notif.Userinfo) error {
 		&twilioSID,
 		&twilioToken,
 		&twilioFrom,
+		&twitterAccessToken,
+		&twitterAccessTokenSecret,
 		&user.Count,
 		&user.Latest,
 		&user.Created,
@@ -65,6 +69,8 @@ func findUser(db *sql.DB, userID int, user *notif.Userinfo) error {
 	user.TwilioSID = twilioSID.String
 	user.TwilioToken = twilioToken.String
 	user.TwilioFrom = twilioFrom.String
+	user.TwitterAccessToken = twitterAccessToken.String
+	user.TwitterAccessTokenSecret = twitterAccessTokenSecret.String
 	return err
 }
 
@@ -72,13 +78,19 @@ func findSite(db *sql.DB, site *notif.Siteinfo) error {
 	var twilioSID sql.NullString
 	var twilioToken sql.NullString
 	var twilioFrom sql.NullString
+	var twitterConsumerKey sql.NullString
+	var twitterConsumerSecret sql.NullString
 
-	err := db.QueryRow(`SELECT twilio_sid,twilio_token,twilio_from FROM site`).Scan(&twilioSID,
+	err := db.QueryRow(`SELECT twilio_sid,twilio_token,twilio_from,twitter_consumer_key, twitter_consumer_secret FROM site`).Scan(&twilioSID,
 		&twilioToken,
-		&twilioFrom)
+		&twilioFrom,
+	        &twitterConsumerKey,
+	        &twitterConsumerSecret)
 	site.TwilioSID = twilioSID.String
 	site.TwilioToken = twilioToken.String
 	site.TwilioFrom = twilioFrom.String
+	site.TwitterConsumerKey = twitterConsumerKey.String
+	site.TwitterConsumerSecret = twitterConsumerSecret.String
 	return err
 }
 
@@ -117,6 +129,13 @@ func main() {
 
 	go collectNative(db, cc) //Listen for native notifs
 
+// Only attempt Twitter collection if a consumer key and secret are configured in site settings
+	if (site.TwitterConsumerKey != "" && site.TwitterConsumerSecret != "") {
+		doTweets(db, cc, site)  //create goroutines for tweets (1 per Twitter-configured user when streaming, TBD for webhooks)
+	}
+
+	//Process rules for incoming notifs
+	
 	for notif := range cc {
 
 		err := findUser(db, notif.UserID, &user)

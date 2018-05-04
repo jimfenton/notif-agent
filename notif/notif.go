@@ -2,7 +2,7 @@
 
 notif.go - Notification definitions and utilities
 
-Copyright (c) 2015, 2017 Jim Fenton
+Copyright (c) 2015, 2017, 2018 Jim Fenton
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to
@@ -27,6 +27,8 @@ SOFTWARE.
 package notif
 
 import (
+	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -41,57 +43,61 @@ const (
 
 // Representations of various data structures in PostgreSQL
 
-type Notif struct { //Notification document in MongoDB database
-	Id          int       //Database: "_id"
-	To          string    //Database: "to"
-	Description string    //Database: "description"
-	Origtime    time.Time //Database: "origtime"
-	Priority    NotifPri  //Database: "priority"
+// Table notification -- Notification table
+type Notif struct { //Notification record in database
+	Id          int       //Database: "id" //Sequence number
+	To          string    //Database: "to" //Destination address (UUID if native)
+	Description string    //Database: "description" //Description of authorization
+	Origtime    time.Time //Database: "origtime" //Notif origination timestamp
+	Priority    NotifPri  //Database: "priority" //Notif priority
 	From        string    //Database: "fromdomain"  //TODO: rename field 'from'
-	Expires     time.Time //Database: "expires"
-	Subject     string    //Database: "subject"
-	Body        string    //Database: "body"
-	NotID       string    //Database: "notID"
-	RecvTime    time.Time //Database: "recvtime"
-	RevCount    int       //Database: "revcount"
-	Read        bool      //Database: "read"
-	ReadTime    time.Time //Database: "readtime"
-	Deleted     bool      //Database: "deleted"
-	Source      string
-	UserID      int //Database: "user_id"
+	Expires     time.Time //Database: "expires" //Notif expiration timestamp
+	Subject     string    //Database: "subject" //Notif subject header
+	Body        string    //Database: "body" //Notif body text
+	NotID       string    //Database: "notID" //Assigned notif ID handle
+	RecvTime    time.Time //Database: "recvtime" //Notif received time (updated on notif update)
+	RevCount    int       //Database: "revcount" //Notif revision count (0 initially)
+	Read        bool      //Database: "read" //Notif seen flag (true if seen)
+	ReadTime    time.Time //Database: "readtime" //Notif seen timestamp
+	Deleted     bool      //Database: "deleted" //Notif deletion flag (true if deleted)
+	Source      string    //Database: "source" //Notif source, e.g., "native", "tweet"
+	UserID      int       //Database: "user_id"
 }
 
+// Table authorization -- native notif authorizations
 type Auth struct {
-	Id          int       //Database: "_id"
-	UserID      int       //Database: "user_id"
-	Address     string    //Database: "address"
-	Domain      string    //Database: "domain"
-	Description string    //Database: "description"
-	Created     time.Time //Database: "created" //not used in agent
-	Maxpri      NotifPri  //Database: "maxpri"
-	Latest      time.Time //Database: "latest"
-	Count       int       //Database: "count"
-	Active      bool      //Database: "active"
-	Expiration  time.Time //Database: "expiration"
-	Deleted     bool      //Database: "deleted"
+	Id          int       //Database: "id" //Sequence number
+	UserID      int       //Database: "user_id" //ID of user owning authorization
+	Address     string    //Database: "address" //UUID address of destination address
+	Domain      string    //Database: "domain" //Name of source domain
+	Description string    //Database: "description" //Human-readable description of notification
+	Created     time.Time //Database: "created" //Authorization creation timestamp (not used in agent)
+	Maxpri      NotifPri  //Database: "maxpri" //Maximum priority for authorization
+	Latest      time.Time //Database: "latest" //Latest notif timestamp
+	Count       int       //Database: "count" //Count of notifs received for this authorization
+	Active      bool      //Database: "active" //Authorization active flag (true if active)
+	Expiration  time.Time //Database: "expiration" //Timestamp of authorization lifetime (implemented???)
+	Deleted     bool      //Database: "deleted" //Authorization deletion flag (true if deleted)
 }
 
 // Per-user settings and information
 type Userinfo struct {
-	Id                  int       //Database: "_id"
-	UserID              int       //Database: "user_id"
-	Count               int       //Database: "count"
-	EmailUsername       string    //Database: "email_username"
-	EmailServer         string    //Database: "email_server"
-	EmailPort           int       //Database: "email_port"
-	EmailFrom           string    //Database: "email_from"
-	EmailSecurity       int       //Database: "email_security"
-	EmailAuthentication int       //Database: "email_authentication"
-	Created             time.Time //Database: "created"
-	Latest              time.Time //Database: "latest"
-	TwilioSID           string    //Database: "twilio_sid"  (Overrides site setting if present)
-	TwilioToken         string    //Database: "twilio_token"
-	TwilioFrom          string    //Database: "twilio_from"
+	Id                       int       //Database: "_id"
+	UserID                   int       //Database: "user_id" //Perhaps redundant??
+	Count                    int       //Database: "count"
+	EmailUsername            string    //Database: "email_username"
+	EmailServer              string    //Database: "email_server"
+	EmailPort                int       //Database: "email_port"
+	EmailFrom                string    //Database: "email_from"
+	EmailSecurity            int       //Database: "email_security"
+	EmailAuthentication      int       //Database: "email_authentication"
+	Created                  time.Time //Database: "created"
+	Latest                   time.Time //Database: "latest"
+	TwilioSID                string    //Database: "twilio_sid"  (Overrides site setting if present)
+	TwilioToken              string    //Database: "twilio_token"
+	TwilioFrom               string    //Database: "twilio_from"
+	TwitterAccessToken       string    //Database: "twitter_access_token"
+	TwitterAccessTokenSecret string    //Database: "twitter_access_token_secret"
 }
 
 type Rule struct {
@@ -104,9 +110,27 @@ type Rule struct {
 }
 
 // Global settings for the site
-// overridden by user settings if present
+// Twilio values overridden by user settings if present
 type Siteinfo struct {
-	TwilioSID   string //Database: "twilio_sid"
-	TwilioToken string //Database: "twilio_token"
-	TwilioFrom  string //Database: "twilio_from"
+	TwilioSID             string //Database: "twilio_sid"
+	TwilioToken           string //Database: "twilio_token"
+	TwilioFrom            string //Database: "twilio_from"
+	TwitterConsumerKey    string //Database: "twitter_consumer_key"
+	TwitterConsumerSecret string //Database: "twitter_consumer_secret"
+}
+
+//Store a notif in the database
+
+func (n Notif) Store(db *sql.DB) error {
+	stmt, err := db.Prepare(`INSERT INTO notification (user_id,toaddr,description,origtime,priority,fromdomain,expires,subject,body,notid,recvtime,revcount,read,readtime,source,deleted) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`)
+	if err != nil {
+		fmt.Println("Notification insert prepare error: ", err)
+		return err
+	}
+	_, err = stmt.Exec(n.UserID, n.To, n.Description, n.Origtime, n.Priority, n.From, n.Expires,
+		n.Subject, n.Body, n.NotID, n.RecvTime, 0, false, nil, n.Source, false)
+	if err != nil {
+		fmt.Println("Notification insert error: ", err)
+	}
+	return err
 }
