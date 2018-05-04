@@ -2,7 +2,7 @@
 
 agent.go - Prototype notification agent
 
-Copyright (c) 2015 Jim Fenton
+Copyright (c) 2015, 2017 Jim Fenton
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to
@@ -27,54 +27,104 @@ SOFTWARE.
 package main
 
 import (
-	"encoding/base64"
+	"database/sql"
+	"encoding/json"
 	"fmt"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
 	"github.com/jimfenton/notif-agent/notif"
+	_ "github.com/lib/pq"
+	"io/ioutil"
 	"os"
 )
 
+type AgentDbCfg struct {
+	Host     string `json:"host"`
+	User     string `json:"user"`
+	Dbname   string `json:"dbname"`
+	Password string `json:"password"`
+}
+
+// Find an user record by ID
+func findUser(db *sql.DB, userID int, user *notif.Userinfo) error {
+	var twilioSID sql.NullString
+	var twilioToken sql.NullString
+	var twilioFrom sql.NullString
+
+	err := db.QueryRow(`SELECT id,email_username,email_server,email_port,email_authentication,email_security,twilio_sid,twilio_token,twilio_from,count,latest,created,user_id FROM userext WHERE user_id = $1`, userID).Scan(&user.Id,
+		&user.EmailUsername,
+		&user.EmailServer,
+		&user.EmailPort,
+		&user.EmailAuthentication,
+		&user.EmailSecurity,
+		&twilioSID,
+		&twilioToken,
+		&twilioFrom,
+		&user.Count,
+		&user.Latest,
+		&user.Created,
+		&user.UserID)
+	user.TwilioSID = twilioSID.String
+	user.TwilioToken = twilioToken.String
+	user.TwilioFrom = twilioFrom.String
+	return err
+}
+
+func findSite(db *sql.DB, site *notif.Siteinfo) error {
+	var twilioSID sql.NullString
+	var twilioToken sql.NullString
+	var twilioFrom sql.NullString
+
+	err := db.QueryRow(`SELECT twilio_sid,twilio_token,twilio_from FROM site`).Scan(&twilioSID,
+		&twilioToken,
+		&twilioFrom)
+	site.TwilioSID = twilioSID.String
+	site.TwilioToken = twilioToken.String
+	site.TwilioFrom = twilioFrom.String
+	return err
+}
+
 func main() {
 
-	var uinfo notif.Userinfo
+	var user notif.Userinfo
+	var site notif.Siteinfo
+	var adc AgentDbCfg
 
-	//Test stuff
-	pubkey := getkey("shiny", "bluepopcorn.net")
-
-	pkey, err := base64.StdEncoding.DecodeString(pubkey)
+	dat, err := ioutil.ReadFile("/etc/notifs/agent.cfg") //keeps passwords out of source code
+	err = json.Unmarshal(dat, &adc)
 	if err != nil {
-		fmt.Println("Key decoding error:", err, pkey)
-	}
-
-	// End test stuff
-
-	uri := "mongodb://localhost/notif"
-	sess, err := mgo.Dial(uri)
-	if err != nil {
-		fmt.Printf("Can't connect to mongo, go error %v\n", err)
+		fmt.Println("DB config unmarshal error:", err)
 		os.Exit(1)
 	}
-	defer sess.Close()
+
+	// Database parameters are stored in JSON form in /etc/notifs/agent.cfg
+	// Sample configuration:
+	// {"host":"localhost","dbname":"notifs","user":"notifs","password":"whatever"}
+	db, err := sql.Open("postgres", fmt.Sprintf("user=%s dbname=%s host=%s password=%s", adc.User, adc.Dbname, adc.Host, adc.Password))
+	if err != nil {
+		fmt.Println("Can't connect to database:", err)
+		os.Exit(1)
+	}
+
+	defer db.Close()
+
+	//Collect site configuration info
+	err = findSite(db, &site)
+	if err != nil {
+		fmt.Println("Can't retrieve site configuration info:", err) // non-fatal for now at least
+	}
 
 	// Channel for notif collectors
-	cc:= make(chan notif.Notif, 10)
+	cc := make(chan notif.Notif, 10)
 
-	go collectNative(sess, cc)  //Listen for native notifs
-
-        methodColl := sess.DB("").C("method")
-        ruleColl := sess.DB("").C("rule")
-        userinfoColl := sess.DB("").C("userext")
-
+	go collectNative(db, cc) //Listen for native notifs
 
 	for notif := range cc {
 
-		err = userinfoColl.Find(bson.M{"user_id": notif.UserID}).One(&uinfo)
+		err := findUser(db, notif.UserID, &user)
 		if err != nil {
-			fmt.Printf("Can't retrieve user info for push, go error %v\n", err) // non-fatal
+			fmt.Println("Can't retrieve user info for push:", err) // non-fatal
 		} else {
-			ProcessRules(notif, ruleColl, methodColl, uinfo)
+			ProcessRules(notif, db, user, site)
 		}
 	}
-	
+
 }
