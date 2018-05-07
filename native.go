@@ -2,7 +2,7 @@
 
 native.go - Native notif collector for prototype notification agent
 
-Copyright (c) 2015, 2017 Jim Fenton
+Copyright (c) 2015, 2017, 2018 Jim Fenton
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to
@@ -401,7 +401,7 @@ func (ag agent) ServeHTTP(
 		nd.Deleted = true
 		nd.RecvTime = time.Now()
 		nd.UserID = auth.UserID //should already be there, but just in case
-		stmt, err := ag.Db.Prepare("UPDATE notification SET recvtime = $1, deleted=true WHERE notid = $7")
+		stmt, err := ag.Db.Prepare("UPDATE notification SET recvtime = $1, deleted=true WHERE notid = $2")
 		if err != nil {
 			fmt.Println("DELE: Notif update prepare error: ", err)
 			w.WriteHeader(http.StatusInternalServerError)

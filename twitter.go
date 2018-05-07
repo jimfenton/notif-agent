@@ -37,6 +37,8 @@ import (
 	"net/url"
 )
 
+//Create goroutine to collect tweets for each user with a Twitter access token and secret
+
 func doTweets(db *sql.DB, c chan notif.Notif, site notif.Siteinfo) {
 
 	var u notif.Userinfo
@@ -61,7 +63,9 @@ func doTweets(db *sql.DB, c chan notif.Notif, site notif.Siteinfo) {
 	}
 }
 
-func filterTweets(db *sql.DB, t anaconda.Tweet, u notif.Userinfo) (notif.Notif, error) {
+//Filter received tweet to see if it matches a Twitter filter
+
+func filterTweet(db *sql.DB, t anaconda.Tweet, u notif.Userinfo) (notif.Notif, error) {
 	var n notif.Notif
 	var pri notif.NotifPri
 	var lifetime time.Duration
@@ -122,9 +126,23 @@ func collectTweets(db *sql.DB, c chan notif.Notif, u notif.Userinfo) {
 				break
 			}
 			fmt.Print("From: ", t.User.Name, "::", t.Text, "\n")
+			filterTweet(db, t, u) //Create a notif from the tweet if appropriate
+
 		case anaconda.StatusDeletionNotice:
 			t, _ := msg.(anaconda.StatusDeletionNotice)
 			fmt.Print("Status deletion from ", t.UserIdStr, " ID ", t.IdStr, "\n")
+			stmt, err := db.Prepare("UPDATE notification SET recvtime = $1, deleted=true WHERE user_id == $2 AND notid == $3")
+			if err != nil {
+				fmt.Println("Twitter: Notif delete prepare error: ", err)
+				break
+			}
+
+			_, err = stmt.Exec(time.Now(), u.UserID, t.IdStr)
+			if err != nil {
+				fmt.Println("Twitter: Notif delete error: ", err)
+				break
+			}
+	
 		case anaconda.DirectMessage:
 			t, _ := msg.(anaconda.DirectMessage)
 			fmt.Print("DM From::", t.Sender.Name, "::", t.Text, "\n")
