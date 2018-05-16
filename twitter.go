@@ -31,11 +31,18 @@ import (
 	//	"strings"
 	"database/sql"
 	"fmt"
-	"time"
 	"github.com/ChimeraCoder/anaconda"
 	"github.com/jimfenton/notif-agent/notif"
 	"net/url"
+	"time"
 )
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 //Create goroutine to collect tweets for each user with a Twitter access token and secret
 
@@ -68,13 +75,14 @@ func doTweets(db *sql.DB, c chan notif.Notif, site notif.Siteinfo) {
 func filterTweet(db *sql.DB, t anaconda.Tweet, u notif.Userinfo) (notif.Notif, error) {
 	var n notif.Notif
 	var pri notif.NotifPri
-	var lifetime time.Duration
+	var lifetime int
 	var tag string
 
 	//TODO: Filter on tweet type (but maybe not DM)
-	err := db.QueryRow(`SELECT priority, lifetime, tag FROM twitter WHERE active == TRUE AND deleted == FALSE AND user_id == ? AND (source IS NULL or source == ?) AND (keyword IS NULL or keyword LIKE '%?%' ORDER BY priority LIMIT 1`, u.UserID, t.User, t.Text).Scan(&pri, &lifetime, &tag)
+	err := db.QueryRow(`SELECT priority, lifetime, tag FROM twitter WHERE active AND NOT deleted AND user_id = $1 AND (source = '' OR source LIKE $2) AND (keyword = '' OR $3~keyword) ORDER BY priority LIMIT 1`, u.UserID, t.User.ScreenName, t.Text).Scan(&pri, &lifetime, &tag)
 	switch {
 	case err == sql.ErrNoRows:
+		fmt.Println("Twitter: no filter match for tweet")
 		return n, nil //Nothing to do with tweet. Figure out how to signal this
 	case err != nil:
 		{
@@ -83,13 +91,14 @@ func filterTweet(db *sql.DB, t anaconda.Tweet, u notif.Userinfo) (notif.Notif, e
 		}
 	default:
 		{ //Build a notif from the tweet
+			fmt.Println("Twitter: match with filter tag: ", tag)
 			n.To = "" //Unused for Twitter
-			n.Description = tag
+			n.Description = "@" + t.User.ScreenName
 			n.Origtime = time.Now()
-			n.Expires = n.Origtime.Add(lifetime)
-			n.Subject = "@" + t.User.IdStr
-			n.From = t.User.Name
-			n.Description = tag
+			n.Expires = n.Origtime.Add(time.Duration(lifetime) * time.Minute)
+			subj := t.User.Name + ":" + t.Text
+			n.Subject = subj[:min(len(subj), 50)]
+			n.From = tag
 			n.Priority = pri
 			n.Body = t.Text
 			n.NotID = t.IdStr
@@ -112,7 +121,7 @@ func filterTweet(db *sql.DB, t anaconda.Tweet, u notif.Userinfo) (notif.Notif, e
 func collectTweets(db *sql.DB, c chan notif.Notif, u notif.Userinfo) {
 
 	api := anaconda.NewTwitterApi(u.TwitterAccessToken, u.TwitterAccessTokenSecret)
-	api.SetLogger(anaconda.BasicLogger)
+	//	api.SetLogger(anaconda.BasicLogger)
 
 	v := url.Values{}
 	s := api.UserStream(v)
@@ -125,13 +134,13 @@ func collectTweets(db *sql.DB, c chan notif.Notif, u notif.Userinfo) {
 				fmt.Println("Error getting message from stream: ", ok)
 				break
 			}
-			fmt.Print("From: ", t.User.Name, "::", t.Text, "\n")
+			fmt.Print("From: ", t.User.Name, "(@",t.User.ScreenName, ")::", t.Text, "\n")
 			filterTweet(db, t, u) //Create a notif from the tweet if appropriate
 
 		case anaconda.StatusDeletionNotice:
 			t, _ := msg.(anaconda.StatusDeletionNotice)
 			fmt.Print("Status deletion from ", t.UserIdStr, " ID ", t.IdStr, "\n")
-			stmt, err := db.Prepare("UPDATE notification SET recvtime = $1, deleted=true WHERE user_id == $2 AND notid == $3")
+			stmt, err := db.Prepare("UPDATE notification SET recvtime = $1, deleted=true WHERE user_id = $2 AND notid = $3")
 			if err != nil {
 				fmt.Println("Twitter: Notif delete prepare error: ", err)
 				break
@@ -142,7 +151,7 @@ func collectTweets(db *sql.DB, c chan notif.Notif, u notif.Userinfo) {
 				fmt.Println("Twitter: Notif delete error: ", err)
 				break
 			}
-	
+
 		case anaconda.DirectMessage:
 			t, _ := msg.(anaconda.DirectMessage)
 			fmt.Print("DM From::", t.Sender.Name, "::", t.Text, "\n")
