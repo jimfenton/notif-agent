@@ -72,7 +72,7 @@ func doTweets(db *sql.DB, c chan notif.Notif, site notif.Siteinfo) {
 
 //Filter received tweet to see if it matches a Twitter filter
 
-func filterTweet(db *sql.DB, t anaconda.Tweet, u notif.Userinfo) (notif.Notif, error) {
+func filterTweet(db *sql.DB, t anaconda.Tweet, u notif.Userinfo, c chan notif.Notif) (notif.Notif, error) {
 	var n notif.Notif
 	var pri notif.NotifPri
 	var lifetime int
@@ -97,7 +97,7 @@ func filterTweet(db *sql.DB, t anaconda.Tweet, u notif.Userinfo) (notif.Notif, e
 			n.Origtime = time.Now()
 			n.Expires = n.Origtime.Add(time.Duration(lifetime) * time.Minute)
 			subj := t.User.Name + ":" + t.Text
-			n.Subject = subj[:min(len(subj), 50)]
+			n.Subject = subj[:min(len(subj), 60)]
 			n.From = tag
 			n.Priority = pri
 			n.Body = t.Text
@@ -111,6 +111,9 @@ func filterTweet(db *sql.DB, t anaconda.Tweet, u notif.Userinfo) (notif.Notif, e
 			n.UserID = u.UserID
 
 			err = n.Store(db)
+			if err == nil {
+				c <- n
+			}
 		}
 
 	}
@@ -135,7 +138,7 @@ func collectTweets(db *sql.DB, c chan notif.Notif, u notif.Userinfo) {
 				break
 			}
 			fmt.Print("From: ", t.User.Name, "(@",t.User.ScreenName, ")::", t.Text, "\n")
-			filterTweet(db, t, u) //Create a notif from the tweet if appropriate
+			filterTweet(db, t, u, c) //Create a notif from the tweet if appropriate
 
 		case anaconda.StatusDeletionNotice:
 			t, _ := msg.(anaconda.StatusDeletionNotice)
