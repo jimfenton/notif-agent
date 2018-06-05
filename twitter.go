@@ -137,7 +137,7 @@ func collectTweets(db *sql.DB, c chan notif.Notif, u notif.Userinfo) {
 				fmt.Println("Error getting message from stream: ", ok)
 				break
 			}
-			fmt.Print("From: ", t.User.Name, "(@",t.User.ScreenName, ")::", t.Text, "\n")
+			fmt.Print("From: ", t.User.Name, "(@", t.User.ScreenName, ")::", t.Text, "\n")
 			filterTweet(db, t, u, c) //Create a notif from the tweet if appropriate
 
 		case anaconda.StatusDeletionNotice:

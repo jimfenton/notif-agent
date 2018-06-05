@@ -84,8 +84,8 @@ func findSite(db *sql.DB, site *notif.Siteinfo) error {
 	err := db.QueryRow(`SELECT twilio_sid,twilio_token,twilio_from,twitter_consumer_key, twitter_consumer_secret FROM site`).Scan(&twilioSID,
 		&twilioToken,
 		&twilioFrom,
-	        &twitterConsumerKey,
-	        &twitterConsumerSecret)
+		&twitterConsumerKey,
+		&twitterConsumerSecret)
 	site.TwilioSID = twilioSID.String
 	site.TwilioToken = twilioToken.String
 	site.TwilioFrom = twilioFrom.String
@@ -129,13 +129,13 @@ func main() {
 
 	go collectNative(db, cc) //Listen for native notifs
 
-// Only attempt Twitter collection if a consumer key and secret are configured in site settings
-	if (site.TwitterConsumerKey != "" && site.TwitterConsumerSecret != "") {
-		doTweets(db, cc, site)  //create goroutines for tweets (1 per Twitter-configured user when streaming, TBD for webhooks)
+	// Only attempt Twitter collection if a consumer key and secret are configured in site settings
+	if site.TwitterConsumerKey != "" && site.TwitterConsumerSecret != "" {
+		doTweets(db, cc, site) //create goroutines for tweets (1 per Twitter-configured user when streaming, TBD for webhooks)
 	}
 
 	//Process rules for incoming notifs
-	
+
 	for notif := range cc {
 
 		err := findUser(db, notif.UserID, &user)
